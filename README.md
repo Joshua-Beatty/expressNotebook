@@ -1,2 +1,2 @@
 # expressNotebook
-An opern source pushbullet/discord journal alternative.
+An open source pushbullet/discord journal alternative.
