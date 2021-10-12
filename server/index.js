@@ -6,7 +6,6 @@ const { v4: uuidv4 } = require('uuid');
 const path = require('path');
 const bcrypt = require('bcrypt');
 const fs = require('fs');
-
 (async () => {
     // open the database
     const db = await open({
@@ -14,7 +13,7 @@ const fs = require('fs');
         driver: sqlite3.Database,
     });
     // Set up database on first run
-    require('./db-setup.js')(db);
+    await require('./db-setup.js')(db);
 
     // set up express vars
     const app = express();
@@ -27,14 +26,15 @@ const fs = require('fs');
 
     // main upload messages and files route
     app.post('/upload', async (req, res) => {
-        const clientID = await verify(req);
-        if (!clientID) return res.status(401).send({ status: 401, msg: 'Bad Authentication' });
+        const user = await verify(req);
+        if (!user) return res.status(401).send({ status: 401, msg: 'Bad Authentication' });
         // If text is sent save it as one message
         if (req.body && req.body.textField) {
-            await db.run('INSERT INTO messages(timeStamp, messageText, clientID) VALUES(:timeStamp, :messageText, :clientID)', {
+            await db.run('INSERT INTO messages(timeStamp, messageText, clientID, userID) VALUES(:timeStamp, :messageText, :clientID, :userID)', {
                 ':timeStamp': Date.now(),
                 ':messageText': req.body.textField,
-                ':clientID': clientID,
+                ':clientID': user.clientID,
+                ":userID":user.userID,
             });
         }
         // If no file attatched then stop
@@ -54,11 +54,12 @@ const fs = require('fs');
         file.mv(uploadPath, async (err) => {
             if (err) return res.status(500).send(err);
             // Add file to database
-            await db.run('INSERT INTO messages VALUES(null, :timeStamp, :messageText, :messageFilePath, :clientID)', {
+            await db.run('INSERT INTO messages VALUES(null, :timeStamp, :messageText, :messageFilePath, :clientID, :userID)', {
                 ':timeStamp': Date.now(),
                 ':messageText': file.name,
                 ':messageFilePath': `/files/${fileID}/${file.name}`,
-                ':clientID': clientID,
+                ':clientID': user.clientID,
+                ":userID":user.userID,
             });
             return res.send({ status: 200, msg: 'message uploaded' });
         });
@@ -67,12 +68,13 @@ const fs = require('fs');
     //Get limit number of messages older then offset
     //Used for getting old messages(like on scroll up)
     app.get('/messages', async (req, res) => {
-        const clientID = await verify(req);
-        if (!clientID) res.status(401).send({ status: 401, msg: 'Bad Authentication' });
+        const user = await verify(req);
+        if (!user) res.status(401).send({ status: 401, msg: 'Bad Authentication' });
         if (req.query.limit > 100) req.query.limit = 100;
-        const result = await db.all('SELECT * FROM messages WHERE messageID < :offset ORDER BY timeStamp DESC LIMIT :number  ', {
+        const result = await db.all('SELECT * FROM messages WHERE messageID < :offset AND userID = :userID ORDER BY timeStamp DESC LIMIT :number  ', {
             ':number': req.query.limit || 4,
             ':offset': req.query.offset || 9223372036854775807n,
+            ':userID': user.userID,
         });
         res.send({ status: 200, results: result, offset: (result.length > 0 ? result[result.length - 1].messageID : (req.query.offset || 1)) });
     });
@@ -80,20 +82,24 @@ const fs = require('fs');
     //Get limit number of messages newer then offset
     //Used for pinging for new messages
     app.get('/messages/new', async (req, res) => {
-        const clientID = await verify(req);
-        if (!clientID) res.status(401).send({ status: 401, msg: 'Bad Authentication' });
+        const user = await verify(req);
+        if (!user) res.status(401).send({ status: 401, msg: 'Bad Authentication' });
         if (req.query.limit > 100) req.query.limit = 100;
-        const result = await db.all('SELECT * FROM messages WHERE messageID > :offset ORDER BY messageID ASC LIMIT :number ', {
+        const result = await db.all('SELECT * FROM messages WHERE messageID > :offset AND userID = :userID ORDER BY messageID ASC LIMIT :number ', {
             ':number': req.query.limit || 10,
             ':offset': req.query.offset || 0,
+            ':userID': user.userID,
         });
         res.send({ status: 200, results: result, offset: (result.length > 0 ? result[result.length - 1].messageID : (req.query.offset || 9223372036854775807n)) });
     });
 
     //Deletes a message and the corresponding file if there is any
     app.delete('/messages/delete/:messageID', async (req, res) => {
-        const result = await db.get('SELECT * FROM messages WHERE messageID = :messageID ', {
+        const user = await verify(req);
+        if (!user) res.status(401).send({ status: 401, msg: 'Bad Authentication' });
+        const result = await db.get('SELECT * FROM messages WHERE messageID = :messageID AND userID = :userID', {
             ':messageID': req.params.messageID,
+            ':userID': user.userID,
         });
         if(!result){
             res.status(400).send({ status: 400, msg: `Could not find or delete: ${req.params.messageID}` });
@@ -103,8 +109,6 @@ const fs = require('fs');
             console.log(result.messageFilePath);
             fs.rmdirSync(path.join(__dirname, path.dirname(result.messageFilePath)), { recursive: true });
         }
-        const clientID = await verify(req);
-        if (!clientID) res.status(401).send({ status: 401, msg: 'Bad Authentication' });
         const result2 = await db.run('DELETE FROM messages WHERE messageID = :messageID ', {
             ':messageID': req.params.messageID,
         });
@@ -175,6 +179,6 @@ const fs = require('fs');
         }
         const result = await db.get('SELECT * FROM clients WHERE clientKey = ?', req.get('client-token'));
         if (!req.get('client-token') || !result) return false;
-        return result.clientID;
+        return result;
     }
 })();
