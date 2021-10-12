@@ -70,7 +70,7 @@ function getPassword(readline, callback, notFirst) {
     readline.question("Enter your new password: ", function (pw) {
         // pw == the user's input:
         var password = pw;
-        readline.question("Enter your new password again: ", function (pw2) {
+        readline.question("Enter your new password again: ", function (pw2) { 
             if (password == pw2) {
                 readline.close();
                 callback(password);
