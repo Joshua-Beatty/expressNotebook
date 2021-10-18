@@ -34,7 +34,7 @@ const fs = require('fs');
                 ':timeStamp': Date.now(),
                 ':messageText': req.body.textField,
                 ':clientID': user.clientID,
-                ":userID":user.userID,
+                ":userID": user.userID,
             });
         }
         // If no file attatched then stop
@@ -59,7 +59,7 @@ const fs = require('fs');
                 ':messageText': file.name,
                 ':messageFilePath': `/files/${fileID}/${file.name}`,
                 ':clientID': user.clientID,
-                ":userID":user.userID,
+                ":userID": user.userID,
             });
             return res.send({ status: 200, msg: 'message uploaded' });
         });
@@ -101,11 +101,11 @@ const fs = require('fs');
             ':messageID': req.params.messageID,
             ':userID': user.userID,
         });
-        if(!result){
+        if (!result) {
             res.status(400).send({ status: 400, msg: `Could not find or delete: ${req.params.messageID}` });
             return;
         }
-        if(result.messageFilePath){
+        if (result.messageFilePath) {
             console.log(result.messageFilePath);
             fs.rmdirSync(path.join(__dirname, path.dirname(result.messageFilePath)), { recursive: true });
         }
@@ -168,6 +168,32 @@ const fs = require('fs');
         });
     });
 
+    app.get("/subscribe", async (req, res) => {
+
+        res.set({
+            'Cache-Control': 'no-cache',
+            'Content-Type': 'text/event-stream',
+            'Connection': 'keep-alive'
+        });
+        res.flushHeaders();
+
+        let count=0;
+
+        res.socket.on('end', () => {
+            res.end();
+            count = -1;
+          });
+
+        // eslint-disable-next-line no-constant-condition
+        while (count != -1) {
+
+            console.log('Emit', ++count);
+            // Emit an SSE that contains the current 'count' as a string
+            res.write(`data: ${count}\n\n`);
+            await new Promise(resolve => setTimeout(resolve, 1000));
+        }
+
+    });
     app.listen(port, (err) => {
         if (err) console.log('Error in server setup');
         console.log(`Server started at http://localhost:${port}`);
