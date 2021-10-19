@@ -105,4 +105,5 @@ dist
 
 # database and files
 *.db
-.files/*
+files/**
+!files/.gitkeep
