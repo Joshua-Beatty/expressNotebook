@@ -171,7 +171,6 @@ const fs = require('fs');
         });
     });
 
-<<<<<<< HEAD
     app.get("/subscribe", async(req, res) => {
         const user = await verify(req);
         if (!user) return res.status(401).send({ status: 401, msg: 'Bad Authentication' });
@@ -180,9 +179,6 @@ const fs = require('fs');
         let id = uuidv4();
 
         subscribers[user.userID][id] = res;
-=======
-    app.get("/subscribe", async (req, res) => {
->>>>>>> 11f982715a09599ffa15c655d178c9432dbf79c1
 
         res.set({
             'Cache-Control': 'no-cache',
@@ -191,7 +187,6 @@ const fs = require('fs');
         });
         res.flushHeaders();
 
-<<<<<<< HEAD
         res.socket.on('end', () => {
             res.end();
             delete subscribers[user.userID][id];
@@ -201,25 +196,9 @@ const fs = require('fs');
         });
 
         res.write(`connected\n`);
-=======
-        let count=0;
-
-        res.socket.on('end', () => {
-            res.end();
-            count = -1;
-          });
-
-        // eslint-disable-next-line no-constant-condition
-        while (count != -1) {
-
-            console.log('Emit', ++count);
-            // Emit an SSE that contains the current 'count' as a string
-            res.write(`data: ${count}\n\n`);
-            await new Promise(resolve => setTimeout(resolve, 1000));
-        }
->>>>>>> 11f982715a09599ffa15c655d178c9432dbf79c1
 
     });
+    
     app.listen(port, (err) => {
         if (err) console.log('Error in server setup');
         console.log(`Server started at http://localhost:${port}`);
