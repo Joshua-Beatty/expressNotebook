@@ -198,6 +198,11 @@ const fs = require('fs');
         res.write(`connected\n`);
 
     });
+
+    app.get("/confirm", async(req, res) => {
+        res.send("6ae751d3-31ff-497c-8276-37ee3b302f53");
+    });
+    
     
     app.listen(port, (err) => {
         if (err) console.log('Error in server setup');
