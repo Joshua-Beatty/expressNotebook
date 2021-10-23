@@ -6,7 +6,9 @@ const { v4: uuidv4 } = require('uuid');
 const path = require('path');
 const bcrypt = require('bcrypt');
 const fs = require('fs');
-(async() => {
+require('dotenv').config();
+
+(async () => {
     let subscribers = {};
     // open the database
     const db = await open({
@@ -26,7 +28,7 @@ const fs = require('fs');
     app.use('/files', express.static('files'));
 
     // main upload messages and files route
-    app.post('/upload', async(req, res) => {
+    app.post('/upload', async (req, res) => {
         const user = await verify(req);
         if (!user) return res.status(401).send({ status: 401, msg: 'Bad Authentication' });
         const timestamp = Date.now();
@@ -38,8 +40,20 @@ const fs = require('fs');
                 ':clientID': user.clientID,
                 ":userID": user.userID,
             });
+            if (subscribers[user.userID]) {
+                for (let key in subscribers[user.userID]) {
+                    subscribers[user.userID][key].write(JSON.stringify(
+                        {
+                            'timeStamp': timestamp,
+                            'messageText': req.body.textField,
+                            'clientID': user.clientID,
+                            "userID": user.userID
+                        })+"\n"
+                    );
+                }
+            }
         }
-        // If no file attatched then stop
+        // If no file is attached then stop
         if (!req.files || Object.keys(req.files).length === 0) {
             return res.send({ status: 200, msg: 'message uploaded' });
         }
@@ -53,7 +67,7 @@ const fs = require('fs');
             if (err) throw err;
         });
         // Use the mv() method to place the file on the file system
-        file.mv(uploadPath, async(err) => {
+        file.mv(uploadPath, async (err) => {
             if (err) return res.status(500).send(err);
             // Add file to database
             await db.run('INSERT INTO messages VALUES(null, :timeStamp, :messageText, :messageFilePath, :clientID, :userID)', {
@@ -63,19 +77,32 @@ const fs = require('fs');
                 ':clientID': user.clientID,
                 ":userID": user.userID,
             });
+            if (subscribers[user.userID]) {
+                for (let key in subscribers[user.userID]) {
+                    subscribers[user.userID][key].write(JSON.stringify(
+                        {
+                            'timeStamp': timestamp,
+                            'messageText': file.name,
+                            'messageFilePath': `/files/${fileID}/${file.name}`,
+                            'clientID': user.clientID,
+                            "userID": user.userID
+                        })+"\n"
+                    );
+                }
+            }
             return res.send({ status: 200, msg: 'message uploaded' });
         });
     });
 
     //Get limit number of messages older then offset
     //Used for getting old messages(like on scroll up)
-    app.get('/messages', async(req, res) => {
+    app.get('/messages', async (req, res) => {
         const user = await verify(req);
         if (!user) res.status(401).send({ status: 401, msg: 'Bad Authentication' });
         if (req.query.limit > 100) req.query.limit = 100;
         const result = await db.all('SELECT * FROM messages WHERE messageID < :offset AND userID = :userID ORDER BY timeStamp DESC LIMIT :number  ', {
             ':number': req.query.limit || 10,
-            ':offset': req.query.offset || 9223372036854775807n,
+            ':offset': req.query.offset || "9223372036854775807",
             ':userID': user.userID,
         });
         res.send({ status: 200, results: result, offset: (result.length > 0 ? result[result.length - 1].messageID : (req.query.offset || 1)) });
@@ -83,7 +110,7 @@ const fs = require('fs');
 
     //Get limit number of messages newer then offset
     //Used for pinging for new messages
-    app.get('/messages/new', async(req, res) => {
+    app.get('/messages/new', async (req, res) => {
         const user = await verify(req);
         if (!user) res.status(401).send({ status: 401, msg: 'Bad Authentication' });
         if (req.query.limit > 100) req.query.limit = 100;
@@ -92,11 +119,11 @@ const fs = require('fs');
             ':offset': req.query.offset || 0,
             ':userID': user.userID,
         });
-        res.send({ status: 200, results: result, offset: (result.length > 0 ? result[result.length - 1].messageID : (req.query.offset || 9223372036854775807n)) });
+        res.send({ status: 200, results: result, offset: (result.length > 0 ? result[result.length - 1].messageID : (req.query.offset || "9223372036854775807")) });
     });
 
     //Deletes a message and the corresponding file if there is any
-    app.delete('/messages/delete/:messageID', async(req, res) => {
+    app.delete('/messages/delete/:messageID', async (req, res) => {
         const user = await verify(req);
         if (!user) res.status(401).send({ status: 401, msg: 'Bad Authentication' });
         const result = await db.get('SELECT * FROM messages WHERE messageID = :messageID AND userID = :userID', {
@@ -108,7 +135,6 @@ const fs = require('fs');
             return;
         }
         if (result.messageFilePath) {
-            console.log(result.messageFilePath);
             fs.rmdirSync(path.join(__dirname, path.dirname(result.messageFilePath)), { recursive: true });
         }
         const result2 = await db.run('DELETE FROM messages WHERE messageID = :messageID ', {
@@ -121,13 +147,13 @@ const fs = require('fs');
         }
     });
 
-    app.post('/clients/new', async(req, res) => {
+    app.post('/clients/new', async (req, res) => {
         if (!req.body.username || !req.body.password || !req.body.clientName) {
             res.status(400).send({ status: 400, msg: 'request must contain body key values: \'username\', \'password\', and \'clientName\'' });
             return;
         }
         const user = await db.get('SELECT * FROM users WHERE username = ?', req.body.username);
-        bcrypt.compare(req.body.password, user.password, async(err, result) => {
+        bcrypt.compare(req.body.password, user.password, async (err, result) => {
             if (result) {
                 const clientKey = uuidv4();
                 const clientID = uuidv4();
@@ -149,13 +175,13 @@ const fs = require('fs');
         });
     });
 
-    app.delete('/clients/delete/:clientID', async(req, res) => {
+    app.delete('/clients/delete/:clientID', async (req, res) => {
         if (!req.body.username || !req.body.password) {
             res.status(400).send({ status: 400, msg: 'request must contain body params: \'username\' and \'password\'' });
             return;
         }
         const user = await db.get('SELECT * FROM users WHERE username = ?', req.body.username);
-        bcrypt.compare(req.body.password, user.password, async(err, result) => {
+        bcrypt.compare(req.body.password, user.password, async (err, result) => {
             if (result) {
                 const result2 = await db.run('DELETE FROM clients where clientID = :clientID ', {
                     ':clientID': req.params.clientID,
@@ -171,10 +197,10 @@ const fs = require('fs');
         });
     });
 
-    app.get("/subscribe", async(req, res) => {
+    app.get("/subscribe", async (req, res) => {
         const user = await verify(req);
         if (!user) return res.status(401).send({ status: 401, msg: 'Bad Authentication' });
-        if(!subscribers[user.userID])
+        if (!subscribers[user.userID])
             subscribers[user.userID] = {};
         let id = uuidv4();
 
@@ -190,9 +216,8 @@ const fs = require('fs');
         res.socket.on('end', () => {
             res.end();
             delete subscribers[user.userID][id];
-            if(Object.keys(subscribers[user.userID]).length === 0)
-             delete subscribers[user.userID];
-            console.log(subscribers);
+            if (Object.keys(subscribers[user.userID]).length === 0)
+                delete subscribers[user.userID];
         });
 
         res.write(`connected\n`);
@@ -210,15 +235,15 @@ const fs = require('fs');
     });
 
     async function verify(req) {
+        if (process.env.NODE_ENV == "development") {
+            return { userID: "uuuuuuuu-uuuu-uuuu-uuuu-uuuuuuuuuuuu", clientID: "cccccccc-cccc-cccc-cccc-cccccccccccc" };
+        }
+
         if (!req) {
             return false;
         }
         const result = await db.get('SELECT * FROM clients WHERE clientKey = ?', req.get('clientKey'));
-        console.log(1);
-        console.log(req.get('clientKey'));
-        console.log(result);
         if (!req.get('clientKey') || !result) return false;
-        console.log(2);
         return result;
     }
 })();
